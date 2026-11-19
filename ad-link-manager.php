@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.9.2
+ * Version: 6.10.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1341,7 +1341,37 @@ class Ad_Link_Manager {
             }
             $links = $this->extract_links_from_html($content, $base);
         }
+        // 公開ページをHTTP取得できない環境（WAF等）向け：
+        // 本文とカスタムフィールド（テーマのJS欄など）を直接読んで対応表を構築する
+        $this->merge_bt_map_from_sources($post_id);
         return ['links' => $links, 'permalink' => $base, 'slug' => $post->post_name];
+    }
+
+    /**
+     * 記事本文とカスタムフィールドの値から bt→URL の対応表をマージする。
+     * ページのHTTP取得に頼らないため、WPサーバー自身やツールが公開ページに
+     * アクセスできないサイトでも「記事内リンク一括取得」のブランド分割が働く。
+     */
+    public function merge_bt_map_from_sources($post_id) {
+        $merged = 0;
+        try {
+            $content = (string) get_post_field('post_content', $post_id);
+            if ($content !== '' && strpos($content, 'getElementById') !== false) {
+                $merged += (int) $this->merge_bt_map_from_html($content);
+            }
+            $meta = get_post_meta($post_id);
+            if (is_array($meta)) {
+                foreach ($meta as $values) {
+                    foreach ((array) $values as $v) {
+                        if (!is_string($v) || strpos($v, 'getElementById') === false) continue;
+                        $merged += (int) $this->merge_bt_map_from_html($v);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // 解析失敗でもスキャン自体は続行
+        }
+        return $merged;
     }
 
     /** Ajax: メタボックス内の「保存」ボタン */
