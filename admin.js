@@ -446,8 +446,27 @@ jQuery(function ($) {
                     showStatus('記事内にbt ID付きリンクが見つかりませんでした', true);
                     return;
                 }
-                if (!confirm('記事内から bt ID付きリンク ' + ids.length + '件 を取り込みます。よろしいですか？')) return;
-                showImportResult(importGroups({ '記事内リンク': ids }, normalizeBt));
+                // bt対応表（bt→遷移先URL）があれば、リンク先のファイル名＝ブランドごとに案件を分ける。
+                // 対応表に無いIDは従来どおり「記事内リンク」1案件にまとめる。
+                const btMap = res.data.bt_map || {};
+                function brandFromUrl(u) {
+                    const path = u.split(/[?#]/)[0];
+                    const last = path.substring(path.lastIndexOf('/') + 1);
+                    return last.replace(/\.(html?|php|aspx?|jsp)$/i, '').trim();
+                }
+                const groups = {};
+                ids.forEach(function (id) {
+                    const mapped = btMap[id];
+                    const name = (mapped && brandFromUrl(mapped)) || '記事内リンク';
+                    if (!groups[name]) groups[name] = [];
+                    groups[name].push(id);
+                });
+                const names = Object.keys(groups);
+                const summary = names.length > 1
+                    ? names.length + '案件（' + names.join('、') + '）に分けて'
+                    : '1案件「' + names[0] + '」として';
+                if (!confirm('記事内から bt ID付きリンク ' + ids.length + '件 を、' + summary + '取り込みます。よろしいですか？')) return;
+                showImportResult(importGroups(groups, normalizeBt));
             } else {
                 // キーワードモード: 広告リンク＝「.html を含み、URL内に記事スラッグを含むリンク」を取り込む
                 // 例: https://www.example.com/lp/acom.html?example-article_top_txt

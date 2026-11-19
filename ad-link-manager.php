@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.10.0
+ * Version: 6.11.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1154,38 +1154,16 @@ class Ad_Link_Manager {
             wp_send_json_error(['msg' => '記事が見つかりません']);
         }
 
-        $base = get_permalink($post) ?: home_url('/');
-
-        // まず公開ページの実際のHTMLから抽出する
-        // （テーマ・ウィジェット・広告挿入機能などで表示時に差し込まれるリンクも拾えるように）
-        $links = [];
-        if ($post->post_status === 'publish') {
-            $html = $this->fetch_body($base, 10);
-            if ($html !== null) {
-                $links = $this->extract_links_from_html($html, $base);
-            }
-        }
-
-        // ページを取得できない場合（下書き等）は本文から抽出
-        if (empty($links)) {
-            $content = $post->post_content;
-            try {
-                if (function_exists('do_blocks')) $content = do_blocks($content);
-                $content = do_shortcode($content);
-            } catch (\Throwable $e) {
-                $content = $post->post_content;
-            }
-            $links = $this->extract_links_from_html($content, $base);
-        }
-
-        if (empty($links)) {
+        // コネクタと同じコアを使う（公開ページ→本文の順で抽出し、
+        // 本文・カスタムフィールドのJSから bt対応表も自動構築する）
+        $data = $this->scan_links_data($post_id);
+        if (empty($data['links'])) {
             wp_send_json_error(['msg' => '記事内にリンクが見つかりませんでした']);
         }
-        wp_send_json_success([
-            'links'     => $links,
-            'permalink' => $base,
-            'slug'      => $post->post_name, // 広告リンク判定（.htmlリンクのURL内に記事スラッグを含む）に使用
-        ]);
+        // bt対応表を同梱＝管理画面側でもブランド別に案件を分割できるようにする
+        $map = get_option(self::BT_MAP_OPTION, []);
+        $data['bt_map'] = is_array($map) && !empty($map) ? array_change_key_case($map, CASE_LOWER) : new \stdClass();
+        wp_send_json_success($data);
     }
 
     /** HTMLからaタグの href / id / テキスト を抽出する */
