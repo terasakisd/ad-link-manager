@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.13.0
+ * Version: 6.14.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1743,10 +1743,27 @@ class Ad_Link_Manager {
         // 既に代替テキストが挿入済みならスキップ
         if (el.nextSibling && el.nextSibling.nodeType === 1 &&
             el.nextSibling.classList && el.nextSibling.classList.contains('alm-replacement-text')) return;
-        var span = document.createElement('span');
-        span.className = 'alm-replacement-text';
-        span.innerHTML = rule.html;
-        el.parentNode.insertBefore(span, el.nextSibling);
+        // 消した要素の種類に合わせて挿入する（表の行を消したら行として、リスト項目ならliとして出す）
+        var rep;
+        var tag = el.tagName;
+        if (tag === 'TR') {
+          rep = document.createElement('tr');
+          var td = document.createElement('td');
+          td.colSpan = (el.cells && el.cells.length) ? el.cells.length : 1;
+          td.innerHTML = rule.html;
+          rep.appendChild(td);
+        } else if (tag === 'LI') {
+          rep = document.createElement('li');
+          rep.innerHTML = rule.html;
+        } else if (tag === 'TD' || tag === 'TH') {
+          rep = document.createElement(tag.toLowerCase());
+          rep.innerHTML = rule.html;
+        } else {
+          rep = document.createElement('span');
+          rep.innerHTML = rule.html;
+        }
+        rep.className = 'alm-replacement-text';
+        el.parentNode.insertBefore(rep, el.nextSibling);
       });
     });
   }
