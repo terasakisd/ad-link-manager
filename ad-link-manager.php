@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.15.0
+ * Version: 6.16.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1758,15 +1758,18 @@ class Ad_Link_Manager {
         $sel = implode(',', $all_selectors);
         $sel = str_replace('</', '<\/', $sel);
 
+        // CSSはJS実行までのチラつき防止（＋JS無効環境の保険）。
+        // 実際の要素はこの後のJSがDOMから物理削除する
         echo "\n<style id=\"alm-hide\">{$sel}{display:none !important;}</style>\n";
 
-        // 代替テキストの挿入用JS
-        if (!empty($replacements)) {
-            $json = wp_json_encode($replacements, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            ?>
+        // 代替テキストの挿入＋停止要素のDOM削除用JS
+        $json     = wp_json_encode($replacements, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $sel_json = wp_json_encode(implode(',', $all_selectors), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ?>
 <script id="alm-replacement">
 (function(){
   var rules = <?php echo $json; ?>;
+  var hideSel = <?php echo $sel_json; ?>;
   function insertReplacements(){
     rules.forEach(function(rule){
       var sel = rule.selectors.join(',');
@@ -1805,15 +1808,23 @@ class Ad_Link_Manager {
       });
     });
   }
+  // 非表示にするだけだと要素がDOM・ソース上に残るため、物理的に削除する。
+  // 代替テキストは削除前に挿入しておく（挿入位置が消える要素の直後のため）
+  function removeHidden(){
+    var targets;
+    try { targets = document.querySelectorAll(hideSel); }
+    catch(e){ return; }
+    targets.forEach(function(el){ if (el.parentNode) el.parentNode.removeChild(el); });
+  }
+  function run(){ insertReplacements(); removeHidden(); }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', insertReplacements);
+    document.addEventListener('DOMContentLoaded', run);
   } else {
-    insertReplacements();
+    run();
   }
 })();
 </script>
             <?php
-        }
     }
 
     /**
