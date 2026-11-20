@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.12.0
+ * Version: 6.13.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1010,7 +1010,7 @@ class Ad_Link_Manager {
                         <label class="alm-parent-wrap-inline">
                             <input type="checkbox" class="alm-parent-toggle-bt"
                                    name="alm_campaigns[__CI__][values][__VI__][parent]" value="1">
-                            <span>↳ 親要素ごと消す（表の行・リスト項目ごと自動で非表示。特殊な構造のときだけ下にセレクタを入力）</span>
+                            <span>↳ 親要素ごと消す（消す範囲をセレクタで指定。例: tr:has(#bt001) ＝ 表の行ごと）</span>
                         </label>
                         <div class="alm-parent-selectors-bt" style="display:none;">
                             <div class="alm-parent-row-bt">
@@ -1018,7 +1018,7 @@ class Ad_Link_Manager {
                                        name="alm_campaigns[__CI__][values][__VI__][parent_selectors][]"
                                        value=""
                                        class="regular-text alm-parent-selector-bt"
-                                       placeholder="（通常は空欄でOK）例: .btn-wrap">
+                                       placeholder="例: tr:has(#bt001) ＝ 表の行ごと / .btn-wrap ＝ ボタン枠">
                                 <button type="button" class="button alm-remove-parent-bt" title="削除">×</button>
                             </div>
                             <p class="alm-value-actions">
@@ -1112,7 +1112,7 @@ class Ad_Link_Manager {
                                 <input type="checkbox" class="alm-parent-toggle-bt"
                                        name="alm_campaigns[<?php echo esc_attr($ci); ?>][values][<?php echo esc_attr($vi); ?>][parent]"
                                        value="1" <?php checked($bt_parent); ?>>
-                                <span>↳ 親要素ごと消す（表の行・リスト項目ごと自動で非表示。特殊な構造のときだけ下にセレクタを入力）</span>
+                                <span>↳ 親要素ごと消す（消す範囲をセレクタで指定。例: tr:has(#bt001) ＝ 表の行ごと）</span>
                             </label>
                             <div class="alm-parent-selectors-bt" style="<?php echo $bt_parent ? '' : 'display:none;'; ?>">
                                 <?php foreach ($bt_psels as $ps): ?>
@@ -1121,7 +1121,7 @@ class Ad_Link_Manager {
                                                name="alm_campaigns[<?php echo esc_attr($ci); ?>][values][<?php echo esc_attr($vi); ?>][parent_selectors][]"
                                                value="<?php echo esc_attr($ps); ?>"
                                                class="regular-text alm-parent-selector-bt"
-                                               placeholder="（通常は空欄でOK）例: .btn-wrap">
+                                               placeholder="例: tr:has(#bt001) ＝ 表の行ごと / .btn-wrap ＝ ボタン枠">
                                         <button type="button" class="button alm-remove-parent-bt" title="削除">×</button>
                                     </div>
                                 <?php endforeach; ?>
@@ -1683,22 +1683,18 @@ class Ad_Link_Manager {
                 $bt_selectors = [];      // 非表示CSSに入れる全セレクタ
                 $rep_targets  = [];      // 代替テキストの挿入先（重複挿入を避けるため分ける）
                 if ($bt_parent) {
-                    // 親要素モード：手入力セレクタがあればそれを優先
+                    // 親要素モード：入力されたセレクタの範囲だけを消す
+                    // （自動で範囲を広げることはしない。セレクタ未入力なら通常モードと同じ＝リンクのみ）
                     foreach ($bt_psels as $ps) {
                         $ps = trim((string)$ps);
                         if ($ps === '') continue;
                         $clean = $this->sanitize_css_selector($ps);
                         if ($clean !== '') $bt_selectors[] = $clean;
                     }
-                    // 未入力ならチェックだけで効くように、リンクを含む
-                    // 表の行(tr)・リスト項目(li)を自動で消す（存在する方だけ一致する）
-                    if (empty($bt_selectors) && $link_selector !== '') {
-                        $bt_selectors[] = 'tr:has(' . $link_selector . ')';
-                        $bt_selectors[] = 'li:has(' . $link_selector . ')';
-                    }
                     $rep_targets = $bt_selectors;
-                    // 行やリストに入っていないページでもリンク自体は必ず消す
+                    // 親の指定に関わらず、リンク自体は必ず消す
                     if ($link_selector !== '') $bt_selectors[] = $link_selector;
+                    if (empty($rep_targets)) $rep_targets = $bt_selectors;
                 } else {
                     // 通常モード
                     if ($link_selector !== '') $bt_selectors[] = $link_selector;
