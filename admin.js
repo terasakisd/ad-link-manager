@@ -454,19 +454,52 @@ jQuery(function ($) {
                     const last = path.substring(path.lastIndexOf('/') + 1);
                     return last.replace(/\.(html?|php|aspx?|jsp)$/i, '').trim();
                 }
-                const groups = {};
-                ids.forEach(function (id) {
-                    const mapped = btMap[id];
-                    const name = (mapped && brandFromUrl(mapped)) || '記事内リンク';
-                    if (!groups[name]) groups[name] = [];
-                    groups[name].push(id);
-                });
-                const names = Object.keys(groups);
-                const summary = names.length > 1
-                    ? names.length + '案件（' + names.join('、') + '）に分けて'
-                    : '1案件「' + names[0] + '」として';
-                if (!confirm('記事内から bt ID付きリンク ' + ids.length + '件 を、' + summary + '取り込みます。よろしいですか？')) return;
-                showImportResult(importGroups(groups, normalizeBt));
+                function proceedImport() {
+                    const groups = {};
+                    ids.forEach(function (id) {
+                        const mapped = btMap[id];
+                        const name = (mapped && brandFromUrl(mapped)) || '記事内リンク';
+                        if (!groups[name]) groups[name] = [];
+                        groups[name].push(id);
+                    });
+                    const names = Object.keys(groups);
+                    const summary = names.length > 1
+                        ? names.length + '案件（' + names.join('、') + '）に分けて'
+                        : '1案件「' + names[0] + '」として';
+                    if (!confirm('記事内から bt ID付きリンク ' + ids.length + '件 を、' + summary + '取り込みます。よろしいですか？')) return;
+                    showImportResult(importGroups(groups, normalizeBt));
+                }
+                // 対応表に無いIDがある場合: 管理者のブラウザから公開ページを取得してJSを解析する。
+                // （サーバ自身の取得がWAFで塞がれるサイトや、JSがサイト共通領域にあり
+                //   本文・メタからは拾えないサイトでも、ブラウザからの同一サイト取得なら必ず通る）
+                const missing = ids.filter(function (id) { return !btMap[id]; });
+                const permalink = res.data.permalink || '';
+                if (!missing.length || !permalink) { proceedImport(); return; }
+                showStatus('公開ページからbt対応表を取得中...');
+                fetch(permalink, { credentials: 'omit', cache: 'no-store' })
+                    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                    .then(function (html) {
+                        // PHP側 merge_bt_map_from_html と同じ規則:
+                        // getElementById('btNNN') の直後600文字以内の最初の .html URL
+                        const found = {};
+                        const re = /getElementById\(\s*['"](bt\d+)['"]\s*\)/gi;
+                        let m;
+                        while ((m = re.exec(html))) {
+                            const seg = html.substr(m.index, 600);
+                            const um = seg.match(/['"](https?:\/\/[^'"]+?\.html[^'"]*)['"]/i);
+                            if (um) found[m[1].toLowerCase()] = um[1];
+                        }
+                        Object.keys(found).forEach(function (k) { btMap[k] = found[k]; });
+                        if (!Object.keys(found).length) { proceedImport(); return; }
+                        // 抽出した対応表をサーバへ保存（次回以降・表示切替JSでも使えるように）
+                        $.ajax({
+                            url: ALM.ajaxUrl,
+                            method: 'POST',
+                            data: { action: 'alm_merge_bt_map', nonce: ALM.nonce, map: JSON.stringify(found) },
+                            dataType: 'json'
+                        }).always(proceedImport);
+                    })
+                    .catch(function () { proceedImport(); });
             } else {
                 // キーワードモード: 広告リンク＝「.html を含み、URL内に記事スラッグを含むリンク」を取り込む
                 // 例: https://www.example.com/lp/acom.html?example-article_top_txt

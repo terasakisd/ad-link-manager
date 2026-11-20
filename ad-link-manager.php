@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.14.1
+ * Version: 6.15.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -56,6 +56,7 @@ class Ad_Link_Manager {
         add_action('wp_ajax_alm_auto_setup', [$this, 'ajax_auto_setup']);
         // Ajax: 記事内のaタグリンクを一括取得（編集画面用）
         add_action('wp_ajax_alm_scan_links', [$this, 'ajax_scan_links']);
+        add_action('wp_ajax_alm_merge_bt_map', [$this, 'ajax_merge_bt_map']);
 
         // 外部ツール連携（コネクタ）：プラグインの情報・処理を渡すためのフィルター
         add_filter('alm_connector_get_campaigns',   [$this, 'connector_get_campaigns'], 10, 2);
@@ -1164,6 +1165,39 @@ class Ad_Link_Manager {
         $map = get_option(self::BT_MAP_OPTION, []);
         $data['bt_map'] = is_array($map) && !empty($map) ? array_change_key_case($map, CASE_LOWER) : new \stdClass();
         wp_send_json_success($data);
+    }
+
+    /**
+     * Ajax: ブラウザ側で公開ページから抽出した bt→URL を bt対応表へマージする。
+     * サーバ自身の公開ページ取得がWAFで塞がれるサイトや、クリック処理JSが
+     * サイト共通領域（テーマのJS欄等）にあり本文・メタから拾えないサイト向け。
+     */
+    public function ajax_merge_bt_map() {
+        check_ajax_referer(self::NONCE_KEY, 'nonce');
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['msg' => '権限がありません'], 403);
+        }
+        $raw = isset($_POST['map']) ? wp_unslash($_POST['map']) : '';
+        $in  = json_decode((string) $raw, true);
+        if (!is_array($in)) {
+            wp_send_json_error(['msg' => '不正なデータです']);
+        }
+        $map = get_option(self::BT_MAP_OPTION, []);
+        if (!is_array($map)) $map = [];
+        $changed = 0;
+        foreach ($in as $k => $v) {
+            $k = strtolower((string) $k);
+            if (!preg_match('/^bt\d+$/', $k)) continue;
+            if (!is_string($v) || !preg_match('#^https?://#i', $v)) continue;
+            $v = esc_url_raw($v);
+            if ($v === '') continue;
+            if (!isset($map[$k]) || $map[$k] !== $v) {
+                $map[$k] = $v;
+                $changed++;
+            }
+        }
+        if ($changed > 0) update_option(self::BT_MAP_OPTION, $map, false);
+        wp_send_json_success(['merged' => $changed, 'total' => count($map)]);
     }
 
     /** HTMLからaタグの href / id / テキスト を抽出する */
