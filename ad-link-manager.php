@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.11.0
+ * Version: 6.12.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1010,7 +1010,7 @@ class Ad_Link_Manager {
                         <label class="alm-parent-wrap-inline">
                             <input type="checkbox" class="alm-parent-toggle-bt"
                                    name="alm_campaigns[__CI__][values][__VI__][parent]" value="1">
-                            <span>↳ 親要素ごと消す</span>
+                            <span>↳ 親要素ごと消す（表の行・リスト項目ごと自動で非表示。特殊な構造のときだけ下にセレクタを入力）</span>
                         </label>
                         <div class="alm-parent-selectors-bt" style="display:none;">
                             <div class="alm-parent-row-bt">
@@ -1018,7 +1018,7 @@ class Ad_Link_Manager {
                                        name="alm_campaigns[__CI__][values][__VI__][parent_selectors][]"
                                        value=""
                                        class="regular-text alm-parent-selector-bt"
-                                       placeholder=".btn-wrap">
+                                       placeholder="（通常は空欄でOK）例: .btn-wrap">
                                 <button type="button" class="button alm-remove-parent-bt" title="削除">×</button>
                             </div>
                             <p class="alm-value-actions">
@@ -1112,7 +1112,7 @@ class Ad_Link_Manager {
                                 <input type="checkbox" class="alm-parent-toggle-bt"
                                        name="alm_campaigns[<?php echo esc_attr($ci); ?>][values][<?php echo esc_attr($vi); ?>][parent]"
                                        value="1" <?php checked($bt_parent); ?>>
-                                <span>↳ 親要素ごと消す</span>
+                                <span>↳ 親要素ごと消す（表の行・リスト項目ごと自動で非表示。特殊な構造のときだけ下にセレクタを入力）</span>
                             </label>
                             <div class="alm-parent-selectors-bt" style="<?php echo $bt_parent ? '' : 'display:none;'; ?>">
                                 <?php foreach ($bt_psels as $ps): ?>
@@ -1121,7 +1121,7 @@ class Ad_Link_Manager {
                                                name="alm_campaigns[<?php echo esc_attr($ci); ?>][values][<?php echo esc_attr($vi); ?>][parent_selectors][]"
                                                value="<?php echo esc_attr($ps); ?>"
                                                class="regular-text alm-parent-selector-bt"
-                                               placeholder=".btn-wrap">
+                                               placeholder="（通常は空欄でOK）例: .btn-wrap">
                                         <button type="button" class="button alm-remove-parent-bt" title="削除">×</button>
                                     </div>
                                 <?php endforeach; ?>
@@ -1568,8 +1568,8 @@ class Ad_Link_Manager {
                 if (!$bt_parent && $legacy_parent) $bt_parent = true;
                 if (empty($bt_psels) && !empty($legacy_psels)) $bt_psels = $legacy_psels;
 
-                // parent=ONでもセレクタが空ならparentをOFFにする
-                if ($bt_parent && empty($bt_psels)) $bt_parent = false;
+                // parent=ONでセレクタが空の場合は「自動（表の行・リスト項目ごと消す）」として
+                // そのまま保持する（6.12.0〜。以前はここでOFFに戻していた）
 
                 $vals[] = [
                     'bt'               => $bt_raw,
@@ -1661,40 +1661,57 @@ class Ad_Link_Manager {
                     $bt_psels  = $legacy_camp_psels;
                 }
 
+                // リンク自身のセレクタ（通常モードの基本形）
+                $link_selector = '';
+                if ($match === 'bt') {
+                    $id = $this->normalize_bt($bt_val);
+                    if ($id !== '') {
+                        $id_safe = preg_replace('/[^A-Za-z0-9_\-]/', '', $id);
+                        if ($id_safe !== '') $link_selector = '#' . $id_safe;
+                    }
+                } else {
+                    $kw = $this->escape_css_attr_value($bt_val);
+                    if ($kw !== '') {
+                        // 「?」を含むキーワードはクエリ（リファラ）込みで特定の1リンクを狙う指定。
+                        // 部分一致(*=)だと「?slug_top」が「?slug_top_txt」まで巻き込むため末尾一致($=)にする。
+                        $op = (strpos($bt_val, '?') !== false) ? '$=' : '*=';
+                        $link_selector = 'a[href' . $op . '"' . $kw . '"]';
+                    }
+                }
+
                 // セレクタを決定
-                $bt_selectors = [];
-                if ($bt_parent && !empty($bt_psels)) {
-                    // 親要素モード
+                $bt_selectors = [];      // 非表示CSSに入れる全セレクタ
+                $rep_targets  = [];      // 代替テキストの挿入先（重複挿入を避けるため分ける）
+                if ($bt_parent) {
+                    // 親要素モード：手入力セレクタがあればそれを優先
                     foreach ($bt_psels as $ps) {
                         $ps = trim((string)$ps);
                         if ($ps === '') continue;
                         $clean = $this->sanitize_css_selector($ps);
                         if ($clean !== '') $bt_selectors[] = $clean;
                     }
+                    // 未入力ならチェックだけで効くように、リンクを含む
+                    // 表の行(tr)・リスト項目(li)を自動で消す（存在する方だけ一致する）
+                    if (empty($bt_selectors) && $link_selector !== '') {
+                        $bt_selectors[] = 'tr:has(' . $link_selector . ')';
+                        $bt_selectors[] = 'li:has(' . $link_selector . ')';
+                    }
+                    $rep_targets = $bt_selectors;
+                    // 行やリストに入っていないページでもリンク自体は必ず消す
+                    if ($link_selector !== '') $bt_selectors[] = $link_selector;
                 } else {
                     // 通常モード
-                    if ($match === 'bt') {
-                        $id = $this->normalize_bt($bt_val);
-                        if ($id === '') continue;
-                        $id_safe = preg_replace('/[^A-Za-z0-9_\-]/', '', $id);
-                        $bt_selectors[] = '#' . $id_safe;
-                    } else {
-                        $kw = $this->escape_css_attr_value($bt_val);
-                        if ($kw === '') continue;
-                        // 「?」を含むキーワードはクエリ（リファラ）込みで特定の1リンクを狙う指定。
-                        // 部分一致(*=)だと「?slug_top」が「?slug_top_txt」まで巻き込むため末尾一致($=)にする。
-                        $op = (strpos($bt_val, '?') !== false) ? '$=' : '*=';
-                        $bt_selectors[] = 'a[href' . $op . '"' . $kw . '"]';
-                    }
+                    if ($link_selector !== '') $bt_selectors[] = $link_selector;
+                    $rep_targets = $bt_selectors;
                 }
 
                 if (empty($bt_selectors)) continue;
 
                 $all_selectors = array_merge($all_selectors, $bt_selectors);
 
-                if ($rep_val !== '') {
+                if ($rep_val !== '' && !empty($rep_targets)) {
                     $replacements[] = [
-                        'selectors' => $bt_selectors,
+                        'selectors' => $rep_targets,
                         'html'      => $rep_val,
                     ];
                 }
