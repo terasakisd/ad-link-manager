@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.18.0
+ * Version: 6.18.1
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1620,7 +1620,11 @@ class Ad_Link_Manager {
                     $bt_psels  = [];
                 }
 
-                if ($match === 'bt') {
+                // 値の形式で判別して正規化する（サイト設定だけに頼らない）:
+                // bt ID形式（bt123 / #bt123 / 123）のみ normalize_bt を通す。
+                // キーワード（promise.html?ref 等）は bt方式サイトでもそのまま保持する
+                // （normalize_bt に通すと「.」「?」が除去されて壊れるため）
+                if ($match === 'bt' && preg_match('/^\s*#?\s*(bt)?\s*\d+\s*$/i', $bt_raw)) {
                     $bt_raw = $this->normalize_bt($bt_raw);
                 } else {
                     $bt_raw = trim($bt_raw);
