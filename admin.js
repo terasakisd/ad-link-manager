@@ -432,20 +432,18 @@ jQuery(function ($) {
             }
             const links = res.data.links || [];
 
-            if (ALM.matchType === 'bt') {
-                // btモード: id="bt123" 形式のリンクからbt IDを取り込む
-                const ids = [];
-                const seen = {};
-                links.forEach(function (l) {
-                    const id = (l.id || '').toLowerCase();
-                    if (!/^bt\d+$/.test(id) || seen[id]) return;
-                    seen[id] = true;
-                    ids.push(id);
-                });
-                if (!ids.length) {
-                    showStatus('記事内にbt ID付きリンクが見つかりませんでした', true);
-                    return;
-                }
+            // ページ内容で方式を自動判別: bt ID付きリンクがあればbt方式、
+            // 無ければキーワード方式（メタモンリンク等）。サイト設定には依存しない
+            const ids = [];
+            const seenIds = {};
+            links.forEach(function (l) {
+                const id = (l.id || '').toLowerCase();
+                if (!/^bt\d+$/.test(id) || seenIds[id]) return;
+                seenIds[id] = true;
+                ids.push(id);
+            });
+
+            if (ids.length) {
                 // bt対応表（bt→遷移先URL）があれば、リンク先のファイル名＝ブランドごとに案件を分ける。
                 // 対応表に無いIDは従来どおり「記事内リンク」1案件にまとめる。
                 const btMap = res.data.bt_map || {};
@@ -501,6 +499,11 @@ jQuery(function ($) {
                     })
                     .catch(function () { proceedImport(); });
             } else {
+                runKeywordImport();
+            }
+
+            // キーワード方式の取り込み（bt IDが無いページ、またはキーワード方式サイト）
+            function runKeywordImport() {
                 // キーワードモード: 広告リンク＝「.html を含み、URL内に記事スラッグを含むリンク」を取り込む
                 // 例: https://www.example.com/lp/acom.html?example-article_top_txt
                 //     （acom.html = 案件 / クエリ部分に記事スラッグ）
