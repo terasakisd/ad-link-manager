@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 広告リンク管理 (Ad Link Manager)
  * Description: 投稿・固定ページごとに、案件単位で複数のbt ID / キーワードを登録し、案件まるごとワンクリックで表示/非表示切替できるメタボックス。判定方法はサイト単位で設定。
- * Version: 6.16.0
+ * Version: 6.17.0
  * Update URI: https://github.com/terasakisd/ad-link-manager/
  * Author: Mikuru
  */
@@ -1208,12 +1208,44 @@ class Ad_Link_Manager {
 
         // (1) aタグ: href と id を拾う（従来どおり）
         if (preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', $html, $m, PREG_SET_ORDER)) {
+            $elj_aliases = null; // メタモンリンク(Easy Link Jump)の別名表（必要時のみ読む）
             foreach ($m as $a) {
                 $attrs = $a[1];
                 $href = '';
                 $id   = '';
                 if (preg_match('/\bhref=["\']([^"\']*)["\']/i', $attrs, $hm)) $href = trim($hm[1]);
                 if (preg_match('/\bid=["\']([^"\']*)["\']/i', $attrs, $im))   $id   = trim($im[1]);
+
+                // メタモンリンク(Easy Link Jump)対応:
+                // 出力HTMLでは href がダミーURL（公式サイト等）に置換され、
+                // 実際の広告ファイル名は data-f、リファラは data-p に入る。
+                // 本文側では href="#別名" のままなので、別名表（elj_aliases）から広告ファイル名を引く。
+                $data_f = '';
+                $data_p = '';
+                if (preg_match('/\bdata-f=["\']([^"\']*)["\']/i', $attrs, $fm)) $data_f = trim($fm[1]);
+                if (preg_match('/\bdata-p=["\']([^"\']*)["\']/i', $attrs, $pm)) $data_p = trim($pm[1]);
+                if ($data_f === '' && $href !== '' && $href[0] === '#' && function_exists('get_option')) {
+                    if ($elj_aliases === null) $elj_aliases = (array) get_option('elj_aliases', []);
+                    if (!empty($elj_aliases)) {
+                        $alias = urldecode(ltrim($href, '#'));
+                        foreach ($elj_aliases as $row) {
+                            if (!is_array($row) || empty($row['file'])) continue;
+                            if (ltrim((string) ($row['alias'] ?? ''), '#') === $alias) {
+                                $data_f = (string) $row['file'];
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ($data_f !== '') {
+                    // 実際の広告URL（共通URL + ファイル名 ? リファラ）に組み立て直す
+                    $elj_base = function_exists('get_option') ? (string) get_option('elj_base_url', '') : '';
+                    $adurl = preg_match('#^https?://#i', $data_f)
+                        ? $data_f
+                        : ($elj_base !== '' ? rtrim($elj_base, '/') . '/' . ltrim($data_f, '/') : ltrim($data_f, '/'));
+                    if ($data_p !== '' && strpos($adurl, '?') === false) $adurl .= '?' . $data_p;
+                    $href = $adurl;
+                }
 
                 $is_real_href = ($href !== '' && $href[0] !== '#' && !preg_match('/^(javascript|mailto|tel):/i', $href));
                 // bt ID付きでもなく、リンク先も無いものは広告リンクとして無意味なので除外
@@ -1704,12 +1736,36 @@ class Ad_Link_Manager {
                         if ($id_safe !== '') $link_selector = '#' . $id_safe;
                     }
                 } else {
-                    $kw = $this->escape_css_attr_value($bt_val);
+                    // メタモンリンク(Easy Link Jump)の「#別名」キーワード: 別名表から広告ファイル名に解決する
+                    $kw_val = $bt_val;
+                    if ($kw_val !== '' && $kw_val[0] === '#') {
+                        $alias = urldecode(ltrim($kw_val, '#'));
+                        foreach ((array) get_option('elj_aliases', []) as $elj_row) {
+                            if (!is_array($elj_row) || empty($elj_row['file'])) continue;
+                            if (ltrim((string) ($elj_row['alias'] ?? ''), '#') === $alias) {
+                                $kw_val = (string) $elj_row['file'];
+                                break;
+                            }
+                        }
+                    }
+                    $kw = $this->escape_css_attr_value($kw_val);
                     if ($kw !== '') {
                         // 「?」を含むキーワードはクエリ（リファラ）込みで特定の1リンクを狙う指定。
                         // 部分一致(*=)だと「?slug_top」が「?slug_top_txt」まで巻き込むため末尾一致($=)にする。
-                        $op = (strpos($bt_val, '?') !== false) ? '$=' : '*=';
+                        $op = (strpos($kw_val, '?') !== false) ? '$=' : '*=';
                         $link_selector = 'a[href' . $op . '"' . $kw . '"]';
+                        // メタモンリンク対応: 出力hrefはダミーURLに置換されるため、
+                        // 広告ファイル名(data-f)・リファラ(data-p)でも照合できるようにする
+                        if (strpos($kw_val, '?') !== false) {
+                            list($kw_file, $kw_ref) = explode('?', $kw_val, 2);
+                            $f = $this->escape_css_attr_value($kw_file);
+                            $r = $this->escape_css_attr_value($kw_ref);
+                            if ($f !== '') {
+                                $link_selector .= ',a[data-f$="' . $f . '"]' . ($r !== '' ? '[data-p="' . $r . '"]' : '');
+                            }
+                        } else {
+                            $link_selector .= ',a[data-f*="' . $kw . '"]';
+                        }
                     }
                 }
 
